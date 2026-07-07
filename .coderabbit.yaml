@@ -1,0 +1,31 @@
+language: "en-US"
+tone_instructions: "Be concise and direct."
+reviews:
+  profile: "assertive"
+  auto_review:
+    enabled: true
+    drafts: true
+    base_branches:
+      - main
+      - master
+  path_instructions:
+    - path: "**"
+      instructions: "Flag security issues: API keys, hardcoded credentials, missing .gitignore. Flag data loss risks."
+    - path: "**/migrations/**"
+      instructions: "D1 migrations must be additive — no DROP or destructive ALTER."
+  path_filters:
+    - "!**/pnpm-lock.yaml"
+    - "!**/package-lock.json"
+    - "!**/yarn.lock"
+    - "!**/venv/**"
+    - "!**/node_modules/**"
+    - "!**/frameworks/**"
+    - "!**/dist/**"
+    - "!**/build/**"
+  review_status: true
+  poem: false
+  collapse_walkthrough: false
+chat:
+  auto_reply: true
+knowledge_base:
+  opt_out: true
