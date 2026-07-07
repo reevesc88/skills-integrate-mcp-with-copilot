@@ -1,0 +1,337 @@
+# Instincts generated from https://github.com/reevesc88/skills-integrate-mcp-with-copilot
+# Generated: 2026-07-07T16:22:49.944Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: skills-integrate-mcp-with-copilot-commit-conventional
+trigger: "when writing a commit message"
+confidence: 0.85
+domain: git
+source: repo-analysis
+source_repo: https://github.com/reevesc88/skills-integrate-mcp-with-copilot
+---
+
+# Skills Integrate Mcp With Copilot Commit Conventional
+
+## Action
+
+Use conventional commit format with prefixes: feat
+
+## Evidence
+
+- 1 commits analyzed
+- Detected conventional commit pattern
+- Examples: feat: add CodeRabbit config and review bot workflows
+
+---
+id: skills-integrate-mcp-with-copilot-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/reevesc88/skills-integrate-mcp-with-copilot
+---
+
+# Skills Integrate Mcp With Copilot Commit Length
+
+## Action
+
+Write moderate-length commit messages (~52 characters)
+
+## Evidence
+
+- Average commit message length: 52 chars
+- Based on 1 commits
+
+---
+id: skills-integrate-mcp-with-copilot-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/reevesc88/skills-integrate-mcp-with-copilot
+---
+
+# Skills Integrate Mcp With Copilot Naming Files
+
+## Action
+
+Use kebab-case naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: kebab-case
+
+---
+id: skills-integrate-mcp-with-copilot-import-relative
+trigger: "when importing modules"
+confidence: 0.75
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/reevesc88/skills-integrate-mcp-with-copilot
+---
+
+# Skills Integrate Mcp With Copilot Import Relative
+
+## Action
+
+Use relative imports for project files
+
+## Evidence
+
+- Import analysis shows relative import pattern
+- Example: import { x } from '../lib/x'
+
+---
+id: skills-integrate-mcp-with-copilot-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/reevesc88/skills-integrate-mcp-with-copilot
+---
+
+# Skills Integrate Mcp With Copilot Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: skills-integrate-mcp-with-copilot-test-separate
+trigger: "when writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/reevesc88/skills-integrate-mcp-with-copilot
+---
+
+# Skills Integrate Mcp With Copilot Test Separate
+
+## Action
+
+Place tests in the tests/ or __tests__/ directory, mirroring src structure
+
+## Evidence
+
+- Separate test directory pattern detected
+- Tests live in dedicated test folders
+
+---
+id: skills-integrate-mcp-with-copilot-instinct-file-naming
+trigger: "When creating a new file in the repository"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: reevesc88/skills-integrate-mcp-with-copilot
+---
+
+# Skills Integrate Mcp With Copilot Instinct File Naming
+
+## Action
+
+Name the file using kebab-case
+
+## Evidence
+
+- Pattern in namingConventions.files: kebab-case
+
+---
+id: skills-integrate-mcp-with-copilot-instinct-function-naming
+trigger: "When defining a new function"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: reevesc88/skills-integrate-mcp-with-copilot
+---
+
+# Skills Integrate Mcp With Copilot Instinct Function Naming
+
+## Action
+
+Use camelCase for the function name
+
+## Evidence
+
+- Pattern in namingConventions.functions: camelCase
+
+---
+id: skills-integrate-mcp-with-copilot-instinct-class-naming
+trigger: "When defining a new class"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: reevesc88/skills-integrate-mcp-with-copilot
+---
+
+# Skills Integrate Mcp With Copilot Instinct Class Naming
+
+## Action
+
+Use PascalCase for the class name
+
+## Evidence
+
+- Pattern in namingConventions.classes: PascalCase
+
+---
+id: skills-integrate-mcp-with-copilot-instinct-constant-naming
+trigger: "When declaring a constant"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: reevesc88/skills-integrate-mcp-with-copilot
+---
+
+# Skills Integrate Mcp With Copilot Instinct Constant Naming
+
+## Action
+
+Use SCREAMING_SNAKE_CASE for the constant name
+
+## Evidence
+
+- Pattern in namingConventions.constants: SCREAMING_SNAKE_CASE
+
+---
+id: skills-integrate-mcp-with-copilot-instinct-import-style
+trigger: "When importing modules"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: reevesc88/skills-integrate-mcp-with-copilot
+---
+
+# Skills Integrate Mcp With Copilot Instinct Import Style
+
+## Action
+
+Use relative import paths
+
+## Evidence
+
+- Pattern in importStyle: relative
+
+---
+id: skills-integrate-mcp-with-copilot-instinct-export-style
+trigger: "When exporting modules or functions"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: reevesc88/skills-integrate-mcp-with-copilot
+---
+
+# Skills Integrate Mcp With Copilot Instinct Export Style
+
+## Action
+
+Use named exports
+
+## Evidence
+
+- Pattern in exportStyle: named
+
+---
+id: skills-integrate-mcp-with-copilot-instinct-commit-format
+trigger: "When writing a commit message"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: reevesc88/skills-integrate-mcp-with-copilot
+---
+
+# Skills Integrate Mcp With Copilot Instinct Commit Format
+
+## Action
+
+Use the conventional commit format with the 'feat' prefix for features
+
+## Evidence
+
+- Pattern in commits.prefixes: feat
+- Seen in commit: feat: add CodeRabbit config and review bot workflows
+
+---
+id: skills-integrate-mcp-with-copilot-instinct-commit-length
+trigger: "When writing a commit message"
+confidence: 0.7
+domain: git
+source: repo-analysis
+source_repo: reevesc88/skills-integrate-mcp-with-copilot
+---
+
+# Skills Integrate Mcp With Copilot Instinct Commit Length
+
+## Action
+
+Keep the commit message concise, around 52 characters on average
+
+## Evidence
+
+- Pattern in commits.averageLength: 52
+
+---
+id: skills-integrate-mcp-with-copilot-instinct-test-location
+trigger: "When adding or updating tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: reevesc88/skills-integrate-mcp-with-copilot
+---
+
+# Skills Integrate Mcp With Copilot Instinct Test Location
+
+## Action
+
+Place test files in a separate location from source files
+
+## Evidence
+
+- Pattern in architecture.folderStructure.testLocation: separate
+
+---
+id: skills-integrate-mcp-with-copilot-instinct-coderabbit-workflow
+trigger: "When configuring or updating CI workflows"
+confidence: 0.8
+domain: workflow
+source: repo-analysis
+source_repo: reevesc88/skills-integrate-mcp-with-copilot
+---
+
+# Skills Integrate Mcp With Copilot Instinct Coderabbit Workflow
+
+## Action
+
+Include a workflow file for CodeRabbit triggers at .github/workflows/coderabbit-trigger.yml
+
+## Evidence
+
+- Pattern in architecture.configFiles: .github/workflows/coderabbit-trigger.yml
+
+---
+id: skills-integrate-mcp-with-copilot-instinct-copilot-review-workflow
+trigger: "When configuring or updating CI workflows"
+confidence: 0.8
+domain: workflow
+source: repo-analysis
+source_repo: reevesc88/skills-integrate-mcp-with-copilot
+---
+
+# Skills Integrate Mcp With Copilot Instinct Copilot Review Workflow
+
+## Action
+
+Include a workflow file for Copilot review at .github/workflows/copilot-review.yml
+
+## Evidence
+
+- Pattern in architecture.configFiles: .github/workflows/copilot-review.yml
+
