@@ -1,19 +1,17 @@
 name: Request CodeRabbit Review
-
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-
 concurrency:
   group: request-coderabbit-${{ github.event.pull_request.number }}
   cancel-in-progress: true
-
+permissions: {}
 jobs:
   request-review:
     name: Request CodeRabbit and Gemini review
     runs-on: ubuntu-latest
     permissions:
-      pull-requests: write # needed to request reviewers via pulls.requestReviewers
+      pull-requests: write
     if: github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: Request CodeRabbit and Gemini reviews

@@ -1,19 +1,17 @@
 name: Request Copilot Review
-
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-
 concurrency:
   group: request-copilot-${{ github.event.pull_request.number }}
   cancel-in-progress: true
-
+permissions: {}
 jobs:
   request-copilot:
     name: Request Copilot review
     runs-on: ubuntu-latest
     permissions:
-      pull-requests: write # needed to request Copilot review via pulls.requestReviewers
+      pull-requests: write
     if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: Request Copilot review
