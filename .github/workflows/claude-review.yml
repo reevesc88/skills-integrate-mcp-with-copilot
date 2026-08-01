@@ -22,6 +22,9 @@
 # rather than failing them as noise. Consequence: a fork PR is NEVER
 # bot-clear on this check alone - per the merge policy it needs a maintainer
 # to pull the branch into a same-repo PR to get its claude[bot] review.
+# This check is deliberately NOT a required ruleset check, so a skipped fork
+# run satisfies nothing mechanically - the merge policy layer treats a
+# missing claude[bot] review as not-bot-clear regardless of check state.
 #
 # If this job is red on a repo: either add the CLAUDE_CODE_OAUTH_TOKEN secret
 # (Settings > Secrets and variables > Actions - Calum only) or install/extend
@@ -32,7 +35,7 @@ name: Claude Code Review
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 # Deny-all default. Every job must opt in to the scopes it needs.
 permissions: {}
@@ -48,14 +51,24 @@ jobs:
     permissions:
       contents: read # checkout the PR head
       pull-requests: write # post review comments
+      issues: write # gh pr comment posts via the Issues API
       id-token: write # Claude GitHub App OIDC authentication
 
-    # See FORK POLICY in the header.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # See FORK POLICY in the header. Drafts wait for readiness - aligns with
+    # the drafts:false posture of the rest of the chain. dependabot runs have
+    # no secrets and no usable OIDC, so neither auth path can work -
+    # CodeRabbit covers dependabot PRs.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.draft == false &&
+      github.actor != 'dependabot[bot]'
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          # Default checkout on pull_request is the synthetic merge ref; the
+          # prompt promises the PR head, so pin it.
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
           # The review steps below hand this workspace to an agent that runs
           # Bash tools. Never leave the GITHUB_TOKEN sitting in .git/config.

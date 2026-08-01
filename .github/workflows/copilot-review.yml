@@ -3,8 +3,15 @@
 # Install at: .github/workflows/copilot-review.yml
 # ==============================================================================
 #
-# Same 422 fix as coderabbit-trigger.yml. See that file's header for the full
-# explanation of why `if (status === 422) core.warning('benign')` is wrong.
+# THE 422 PROBLEM, stated here in full (the workflow that used to carry this
+# explanation, coderabbit-trigger.yml, is REMOVED fleet-wide): a 422 from
+# pulls.requestReviewers can mean two opposite things - the reviewer is
+# already requested (benign) OR the reviewer is invalid/absent (total
+# failure). The old fleet code treated both as benign
+# (`if (status === 422) core.warning('benign')`), which turned the failure
+# case into a permanent silent no-review. This workflow requests the review,
+# then VERIFIES the reviewer is attached at the CURRENT head, and fails
+# loudly otherwise.
 #
 # THIS FILE MATTERS MORE THAN THE CODERABBIT ONE, for one reason: unlike
 # CodeRabbit, Copilot has NO auto_review config. There is no `.copilot.yaml`
@@ -26,7 +33,14 @@ name: Request Copilot Review
 
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review, labeled]
+    # `labeled` REMOVED: unrelated-label events were creating skipped runs
+    # that mask failures, and cancel-in-progress races that killed live
+    # requests. `synchronize` ADDED: every new head is re-requested and
+    # re-verified, which the current-head check below requires to be
+    # meaningful.
+    types: [opened, synchronize, reopened, ready_for_review]
+  # Manual re-runs (e.g. after fixing the org's Copilot settings or the slug).
+  workflow_dispatch:
 
 concurrency:
   group: request-copilot-${{ github.event.pull_request.number }}
@@ -42,10 +56,17 @@ jobs:
     permissions:
       pull-requests: write # pulls.requestReviewers
 
+    # dependabot[bot] excluded: dependabot-triggered runs get a read-only
+    # GITHUB_TOKEN regardless of requested permissions, so requestReviewers
+    # can only 403; dependabot PRs are covered by CodeRabbit auto-review
+    # instead (see .coderabbit.yaml). workflow_dispatch carries no
+    # pull_request payload, so it takes the first branch here and the script
+    # below exits cleanly instead.
     if: >-
-      github.event.pull_request.draft == false &&
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      (github.event.action != 'labeled' || github.event.label.name == 'ai-review')
+      github.actor != 'dependabot[bot]')
 
     steps:
       - name: Request Copilot and verify it is attached
@@ -61,6 +82,11 @@ jobs:
           TARGET_ALIASES: copilot-pull-request-reviewer[bot],copilot-pull-request-reviewer,copilot
         with:
           script: |
+            if (!context.payload.pull_request) {
+              core.notice('workflow_dispatch without PR context - use the Actions UI on a PR branch or re-run a failed PR run');
+              return;
+            }
+
             const { owner, repo } = context.repo;
             const prNumber = context.payload.pull_request.number;
 

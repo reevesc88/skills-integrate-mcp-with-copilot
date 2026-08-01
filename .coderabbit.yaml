@@ -23,10 +23,11 @@
 #
 # Setting `enabled: true` fixes the root cause: CodeRabbit subscribes to the
 # PR events itself and reviews without needing anything to be requested. The
-# coderabbit-trigger.yml workflow then stops being the ONLY path to a review
-# and becomes a belt-and-braces reviewer attachment. That is the correct place
-# for this fix. A workflow can only ever verify that a request succeeded; the
-# config is what removes the dependency on the request in the first place.
+# coderabbit-trigger.yml workflow is REMOVED fleet-wide (requestReviewers
+# cannot attach the CodeRabbit app; verified live 2026-08-01), so auto_review
+# is the ONLY - and sufficient - CodeRabbit path. A workflow could only ever
+# verify that a request succeeded; the config removes the dependency on the
+# request in the first place.
 #
 # ------------------------------------------------------------------------------
 # WHY THERE ARE NO ignore_title_keywords
@@ -46,9 +47,11 @@
 # false` (one pass on the finished diff, per Gospel Rule 3), not by a title
 # string that turns a skip into a pass.
 #
-# `ignore_usernames` for dependabot/renovate is KEPT: CodeRabbit reviewing a
-# lockfile bump is pure waste, and per the merge policy those PRs still go
-# through claude[bot] like any other PR, so no security signal is lost.
+# `ignore_usernames` carries NO dependabot/renovate entries, deliberately:
+# dependabot/renovate PRs run Actions with fork-like restrictions (no secrets,
+# read-only token), so the Claude and Copilot workflows deliberately skip
+# them. CodeRabbit reviews via its app rather than repo Actions, so it is the
+# ONLY reviewer that still works there and must not ignore them.
 # ==============================================================================
 
 language: "en-AU"
@@ -91,9 +94,8 @@ reviews:
 
     # NO ignore_title_keywords KEY. See header. Do not re-add it.
 
-    ignore_usernames:
-      - "dependabot[bot]"
-      - "renovate[bot]"
+    # NO ignore_usernames KEY. See header: CodeRabbit is the only reviewer
+    # that still runs on dependabot/renovate PRs. Do not re-add it.
 
     # Both listed because the fleet is split across default branch names
     # (audit: 9 master, 16 main, 1 other). Add this repo's default branch here

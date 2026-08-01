@@ -20,19 +20,36 @@
 # every use is auditable after the fact. Policy, not this file, says who may
 # add it: Calum's word, nobody else's.
 #
-# LIMIT, STATED PLAINLY
-# Anyone with write access CAN add the label; this workflow alone is friction
-# plus visibility, not a hard lock. The hard lock is layered on top by a
+# TRUST MODEL, STATED PLAINLY
+# This workflow runs on `pull_request_target`, so the definition that executes
+# comes from the TRUSTED BASE BRANCH, not from the PR. That closes the
+# self-rewrite bypass the old `pull_request` trigger left open: a PR editing
+# config-guard.yml can no longer substitute a no-op guard for the very run
+# that judges it.
+#
+# THE LOAD-BEARING SAFETY INVARIANT: this job must NEVER check out or execute
+# PR-controlled code - it only reads PR metadata via the API. That invariant
+# is what makes pull_request_target safe here; any future edit that adds a
+# checkout step to this workflow is a security bug.
+#
+# `edited` is in the trigger types so retargeting the PR base re-evaluates
+# the diff. Known gap, expected: on rollout PRs that ADD this file the guard
+# does not run (there is no definition on the base branch yet) - the
+# protection begins after the first merge.
+#
+# The label escape remains friction plus visibility, not a hard lock: anyone
+# with write access CAN add it. The hard lock is layered on top by a
 # repository ruleset that requires this check to pass on the default branch.
-# Do not remove this file on the argument that it is bypassable - the 422
-# audit showed that silent-green, not bypass, is how review dies in practice.
 # ==============================================================================
 
 name: config-guard
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+  # pull_request_target: the workflow definition executes from the trusted
+  # base branch - see TRUST MODEL in the header. `edited` is included so
+  # retargeting the PR base re-evaluates the diff.
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
 
 concurrency:
   group: config-guard-${{ github.event.pull_request.number }}
@@ -46,10 +63,11 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      pull-requests: read # pulls.listFiles + label read
+      pull-requests: read # pulls.listFiles
+      issues: read # issues.listLabelsOnIssue (PR labels live on the issue)
 
-    # No fork skip, deliberately. This job only READS (listFiles + payload
-    # labels), which a fork PR's read-only token fully supports, and a skipped
+    # No fork skip, deliberately. This job only READS (listFiles + a live
+    # label read), which a fork PR's read-only token fully supports, and a skipped
     # job satisfies a required-check ruleset - so skipping forks would hand
     # fork PRs a free bypass of exactly this guard. Raised by CodeRabbit on
     # the rollout PRs. The label escape stays safe for forks on its own:
@@ -73,6 +91,8 @@ jobs:
               // the resolved policy - it must never be (re)introduced or
               // edited silently.
               '.github/coderabbit.yaml',
+              // Steers Copilot's review behavior where present.
+              '.github/copilot-instructions.md',
               '.github/workflows/claude-review.yml',
               // Removed from the standard 2026-08-01 (requestReviewers cannot
               // attach the CodeRabbit app), kept protected so stray copies
@@ -117,8 +137,13 @@ jobs:
               .map(f => `  ${f.status}: ${f.previous_filename ? f.previous_filename + ' -> ' : ''}${f.filename}`)
               .join('\n');
 
-            const labels = (context.payload.pull_request.labels || [])
-              .map(l => (l.name || '').toLowerCase());
+            // Payload labels can be stale relative to rapid label add/remove
+            // races; the live read decides.
+            const liveLabels = await github.paginate(
+              github.rest.issues.listLabelsOnIssue,
+              { owner, repo, issue_number: prNumber, per_page: 100 }
+            );
+            const labels = liveLabels.map(l => (l.name || '').toLowerCase());
 
             if (labels.includes(label.toLowerCase())) {
               core.warning(
