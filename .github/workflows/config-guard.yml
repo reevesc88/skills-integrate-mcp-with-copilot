@@ -48,9 +48,12 @@ jobs:
     permissions:
       pull-requests: read # pulls.listFiles + label read
 
-    # Fork PRs: the token is read-only and fork heads cannot ship label
-    # changes anyway; skip rather than fail-noise.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # No fork skip, deliberately. This job only READS (listFiles + payload
+    # labels), which a fork PR's read-only token fully supports, and a skipped
+    # job satisfies a required-check ruleset - so skipping forks would hand
+    # fork PRs a free bypass of exactly this guard. Raised by CodeRabbit on
+    # the rollout PRs. The label escape stays safe for forks on its own:
+    # adding a label requires write access on the BASE repo.
 
     steps:
       - name: Check protected paths
@@ -65,7 +68,15 @@ jobs:
 
             const PROTECTED = new Set([
               '.coderabbit.yaml',
+              // Legacy config location. CodeRabbit prefers the root copy when
+              // both exist, but in a repo missing the root copy this file IS
+              // the resolved policy - it must never be (re)introduced or
+              // edited silently.
+              '.github/coderabbit.yaml',
               '.github/workflows/claude-review.yml',
+              // Removed from the standard 2026-08-01 (requestReviewers cannot
+              // attach the CodeRabbit app), kept protected so stray copies
+              // cannot be edited or reintroduced silently.
               '.github/workflows/coderabbit-trigger.yml',
               '.github/workflows/copilot-review.yml',
               '.github/workflows/config-guard.yml',
@@ -79,6 +90,18 @@ jobs:
               github.rest.pulls.listFiles,
               { owner, repo, pull_number: prNumber, per_page: 100 }
             );
+
+            // listFiles caps at 3000 files. A truncated list cannot prove the
+            // protected paths are untouched, so fail closed rather than pass
+            // on incomplete evidence.
+            const expected = context.payload.pull_request.changed_files;
+            if (typeof expected === 'number' && files.length < expected) {
+              core.setFailed(
+                `File list truncated: received ${files.length} of ${expected} changed files. ` +
+                'The guard cannot prove protected paths are untouched. Split this PR.'
+              );
+              return;
+            }
 
             const touched = files.filter(f =>
               PROTECTED.has(f.filename) ||

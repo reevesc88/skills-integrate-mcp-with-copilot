@@ -158,8 +158,8 @@ chat:
   auto_reply: true
 
 knowledge_base:
-  # Opt out of cross-repo learning: several fleet repos are private and one
-  # (hermes-config) has had live credentials in tracked files.
+  # Opt out of cross-repo learning: parts of the fleet are private and their
+  # contents must not inform reviews elsewhere.
   opt_out: true
 
 # ==============================================================================

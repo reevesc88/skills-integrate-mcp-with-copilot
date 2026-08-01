@@ -17,6 +17,12 @@
 #      SKIPPED the review on a missing secret while reporting SUCCESS - a
 #      false green feeding an auto-merge policy that trusts "bot-clear".
 #
+# FORK POLICY, stated explicitly: fork PRs receive no secrets and no OIDC
+# id-token, so neither auth path can work there. The job skips fork PRs
+# rather than failing them as noise. Consequence: a fork PR is NEVER
+# bot-clear on this check alone - per the merge policy it needs a maintainer
+# to pull the branch into a same-repo PR to get its claude[bot] review.
+#
 # If this job is red on a repo: either add the CLAUDE_CODE_OAUTH_TOKEN secret
 # (Settings > Secrets and variables > Actions - Calum only) or install/extend
 # the Claude GitHub App to cover the repo. Do NOT re-add a skip path.
@@ -28,10 +34,8 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
-permissions:
-  contents: read
-  pull-requests: write
-  id-token: write # required for the Claude GitHub App's OIDC authentication
+# Deny-all default. Every job must opt in to the scopes it needs.
+permissions: {}
 
 concurrency:
   group: claude-review-${{ github.event.pull_request.number }}
@@ -40,10 +44,22 @@ concurrency:
 jobs:
   claude-review:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: read # checkout the PR head
+      pull-requests: write # post review comments
+      id-token: write # Claude GitHub App OIDC authentication
+
+    # See FORK POLICY in the header.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 1
+          # The review steps below hand this workspace to an agent that runs
+          # Bash tools. Never leave the GITHUB_TOKEN sitting in .git/config.
+          persist-credentials: false
 
       # GitHub Actions does not permit the `secrets` context in a job-level `if:`
       # (only github, needs, vars, inputs are available there - see
@@ -52,16 +68,22 @@ jobs:
       # `if: ${{ secrets.X != '' }}` is rejected at workflow parse time, which
       # aborts the whole run with zero jobs scheduled before any step executes.
       # secrets ARE permitted in a step's `env:`, so check presence here and gate
-      # subsequent steps off this step's output instead.
+      # subsequent steps off this step's output instead. The check itself runs
+      # in shell, not template expansion, so no expression ever touches the value.
       - name: Check for Claude OAuth token
         id: check-secret
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        run: echo "has-token=${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            echo "has-token=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-token=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Claude Code Review (subscription token)
         if: steps.check-secret.outputs.has-token == 'true'
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
@@ -92,7 +114,7 @@ jobs:
       # with no review. That is deliberate - see header.
       - name: Claude Code Review (GitHub App OIDC)
         if: steps.check-secret.outputs.has-token != 'true'
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1
         with:
           prompt: |
             REPO: ${{ github.repository }}

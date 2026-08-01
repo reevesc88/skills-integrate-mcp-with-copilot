@@ -91,14 +91,19 @@ jobs:
                 github.rest.pulls.listReviews,
                 { owner, repo, pull_number: prNumber, per_page: 100 }
               );
-              if (reviews.some(r => matches(r.user && r.user.login))) {
-                return { attached: true, how: 'has already submitted a review' };
+              // Only a review of the CURRENT head counts. A historical review
+              // of an earlier push proves nothing about this diff, and
+              // accepting it would recreate the false-green this workflow
+              // exists to kill (raised by Codex on the rollout PRs).
+              const headSha = context.payload.pull_request.head.sha;
+              if (reviews.some(r => matches(r.user && r.user.login) && r.commit_id === headSha)) {
+                return { attached: true, how: 'has already reviewed the current head' };
               }
 
               return {
                 attached: false,
                 requested: requestedUsers.map(u => u.login),
-                reviewed: [...new Set(reviews.map(r => r.user && r.user.login))],
+                reviewed: [...new Set(reviews.map(r => r.user && r.user.login).filter(Boolean))],
               };
             }
 
@@ -137,7 +142,7 @@ jobs:
               } else {
                 core.info(`Verified: "${target}" ${state.how}.`);
               }
-              core.summary
+              await core.summary
                 .addHeading('Copilot reviewer verified', 3)
                 .addRaw(`\`${target}\` is attached to PR #${prNumber} (${state.how}).`)
                 .write();
