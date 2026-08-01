@@ -1,0 +1,9 @@
+reviews:
+  profile: "assertive"
+  # CodeRabbit is on-demand only, to conserve review quota.
+  # Request a review by commenting `@coderabbitai review` on a finished PR.
+  auto_review:
+    enabled: false
+    drafts: false
+    base_branches: ["main", "master"]
+  auto_incremental_review: false
