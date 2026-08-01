@@ -1,0 +1,166 @@
+# ==============================================================================
+# CANONICAL FLEET WORKFLOW - Request Copilot review
+# Install at: .github/workflows/copilot-review.yml
+# ==============================================================================
+#
+# Same 422 fix as coderabbit-trigger.yml. See that file's header for the full
+# explanation of why `if (status === 422) core.warning('benign')` is wrong.
+#
+# THIS FILE MATTERS MORE THAN THE CODERABBIT ONE, for one reason: unlike
+# CodeRabbit, Copilot has NO auto_review config. There is no `.copilot.yaml`
+# that subscribes Copilot to PR events. The reviewer request IS the only path.
+# So when this workflow silently no-ops, Copilot reviews nothing, forever.
+#
+# The fleet audit found exactly that: the `GitHub` repo requests the slug
+# `copilot` and Travis-construction-assistant requests `copilot` too, while
+# the rest of the fleet uses `copilot-pull-request-reviewer[bot]`. At most one
+# of those is right. The wrong one 422s on every single PR, and the old catch
+# block guaranteed nobody would ever find out.
+#
+# The verification step below turns that permanent silent no-op into a loud
+# red job on the first PR after adoption. Expect failures on adoption in repos
+# with a wrong slug. That is the fix working, not the fix breaking.
+# ==============================================================================
+
+name: Request Copilot Review
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, labeled]
+
+concurrency:
+  group: request-copilot-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  request-copilot:
+    name: Request and verify Copilot reviewer
+    runs-on: ubuntu-latest
+
+    permissions:
+      pull-requests: write # pulls.requestReviewers
+
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.event.action != 'labeled' || github.event.label.name == 'ai-review')
+
+    steps:
+      - name: Request Copilot and verify it is attached
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          # The slug GitHub documents for requesting the Copilot code reviewer.
+          # If this ever 422s fleet-wide, the slug changed - fix it HERE, in
+          # the template, and re-sync. Do not patch individual repos.
+          TARGET_REVIEWER: copilot-pull-request-reviewer[bot]
+          # Copilot reads back under several logins depending on endpoint and
+          # account age. All accepted forms listed; matching is case-insensitive
+          # and [bot]-suffix insensitive.
+          TARGET_ALIASES: copilot-pull-request-reviewer[bot],copilot-pull-request-reviewer,copilot
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const prNumber = context.payload.pull_request.number;
+
+            const target = process.env.TARGET_REVIEWER;
+            const aliases = new Set(
+              process.env.TARGET_ALIASES
+                .split(',')
+                .map(s => s.trim().toLowerCase())
+                .filter(Boolean)
+            );
+
+            const norm = (login) => (login || '').trim().toLowerCase();
+            const matches = (login) => {
+              const l = norm(login);
+              return aliases.has(l) || aliases.has(l.replace(/\[bot\]$/, ''));
+            };
+
+            async function reviewerIsAttached() {
+              const requested = await github.rest.pulls.listRequestedReviewers({
+                owner, repo, pull_number: prNumber,
+              });
+              const requestedUsers = requested.data.users || [];
+              if (requestedUsers.some(u => matches(u.login))) {
+                return { attached: true, how: 'listed as a requested reviewer' };
+              }
+
+              const reviews = await github.paginate(
+                github.rest.pulls.listReviews,
+                { owner, repo, pull_number: prNumber, per_page: 100 }
+              );
+              if (reviews.some(r => matches(r.user && r.user.login))) {
+                return { attached: true, how: 'has already submitted a review' };
+              }
+
+              return {
+                attached: false,
+                requested: requestedUsers.map(u => u.login),
+                reviewed: [...new Set(reviews.map(r => r.user && r.user.login))],
+              };
+            }
+
+            let requestError = null;
+            try {
+              await github.rest.pulls.requestReviewers({
+                owner, repo, pull_number: prNumber, reviewers: [target],
+              });
+              core.info(`requestReviewers accepted for "${target}".`);
+            } catch (e) {
+              const status = e.status ?? e.response?.status;
+              const msg = e.response?.data?.message ?? e.message;
+              requestError = { status, msg };
+
+              if (status !== 422) {
+                core.setFailed(
+                  `requestReviewers failed for "${target}" with status ${status ?? 'unknown'}: ${msg}`
+                );
+                throw e;
+              }
+
+              core.info(
+                `requestReviewers returned 422 for "${target}" (${msg}). ` +
+                `Verifying whether the reviewer is already attached...`
+              );
+            }
+
+            const state = await reviewerIsAttached();
+
+            if (state.attached) {
+              if (requestError) {
+                core.info(
+                  `422 confirmed benign: "${target}" ${state.how}. ` +
+                  `Original message: ${requestError.msg}`
+                );
+              } else {
+                core.info(`Verified: "${target}" ${state.how}.`);
+              }
+              core.summary
+                .addHeading('Copilot reviewer verified', 3)
+                .addRaw(`\`${target}\` is attached to PR #${prNumber} (${state.how}).`)
+                .write();
+              return;
+            }
+
+            const detail = [
+              `Requested reviewers on PR #${prNumber}: ${state.requested.length ? state.requested.join(', ') : '(none)'}`,
+              `Reviews submitted by: ${state.reviewed.length ? state.reviewed.join(', ') : '(none)'}`,
+              requestError
+                ? `requestReviewers returned ${requestError.status}: ${requestError.msg}`
+                : `requestReviewers returned success but the reviewer is not present.`,
+              '',
+              'Likely causes, in order of probability:',
+              `  1. Copilot code review is not enabled for ${owner} (org/plan setting).`,
+              `  2. The reviewer slug "${target}" is wrong - the fleet currently`,
+              '     disagrees between "copilot" and "copilot-pull-request-reviewer[bot]".',
+              '  3. Copilot lost access to this repository.',
+              '',
+              'Copilot has no auto-review config, so this request is the ONLY',
+              'path to a Copilot review. A silent pass here means no review at all.',
+            ].join('\n');
+
+            core.setFailed(
+              `Could not verify that "${target}" is a reviewer on PR #${prNumber}.\n${detail}`
+            );

@@ -1,0 +1,114 @@
+# ==============================================================================
+# CANONICAL FLEET WORKFLOW - config-guard
+# Install at: .github/workflows/config-guard.yml
+# ==============================================================================
+#
+# WHY THIS EXISTS
+# On 2026-08-01 a "cost control" sweep deleted the CodeRabbit and Copilot
+# review automation from most active repos in the fleet, in one morning, and
+# nothing tripped: no check failed, no gate fired, the deletions merged like
+# ordinary work and the absence was invisible afterwards. Calum's directive
+# the same day, verbatim intent: bots back on, "we need more security, not
+# less", and stop anyone touching the review config without his word.
+#
+# WHAT IT DOES
+# Fails any PR that adds, edits, renames, or deletes a protected review-config
+# path, unless the PR carries the `config-change-approved` label. The label is
+# the sanctioned escape hatch: the standard itself must remain updatable, and
+# a gate with no exit just gets deleted (which is exactly what this gate is
+# for). Label additions are recorded in the PR timeline with the actor, so
+# every use is auditable after the fact. Policy, not this file, says who may
+# add it: Calum's word, nobody else's.
+#
+# LIMIT, STATED PLAINLY
+# Anyone with write access CAN add the label; this workflow alone is friction
+# plus visibility, not a hard lock. The hard lock is layered on top by a
+# repository ruleset that requires this check to pass on the default branch.
+# Do not remove this file on the argument that it is bypassable - the 422
+# audit showed that silent-green, not bypass, is how review dies in practice.
+# ==============================================================================
+
+name: config-guard
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+concurrency:
+  group: config-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  guard:
+    name: Protect review-config paths
+    runs-on: ubuntu-latest
+
+    permissions:
+      pull-requests: read # pulls.listFiles + label read
+
+    # Fork PRs: the token is read-only and fork heads cannot ship label
+    # changes anyway; skip rather than fail-noise.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - name: Check protected paths
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          APPROVAL_LABEL: config-change-approved
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const prNumber = context.payload.pull_request.number;
+            const label = process.env.APPROVAL_LABEL;
+
+            const PROTECTED = new Set([
+              '.coderabbit.yaml',
+              '.github/workflows/claude-review.yml',
+              '.github/workflows/coderabbit-trigger.yml',
+              '.github/workflows/copilot-review.yml',
+              '.github/workflows/config-guard.yml',
+            ]);
+
+            // Page through every changed file. `filename` is the current path;
+            // `previous_filename` is set on renames - a rename OUT of a
+            // protected path must count, or "rename then delete next PR"
+            // becomes a two-step bypass.
+            const files = await github.paginate(
+              github.rest.pulls.listFiles,
+              { owner, repo, pull_number: prNumber, per_page: 100 }
+            );
+
+            const touched = files.filter(f =>
+              PROTECTED.has(f.filename) ||
+              (f.previous_filename && PROTECTED.has(f.previous_filename))
+            );
+
+            if (touched.length === 0) {
+              core.info('No protected review-config paths touched. Pass.');
+              return;
+            }
+
+            const detail = touched
+              .map(f => `  ${f.status}: ${f.previous_filename ? f.previous_filename + ' -> ' : ''}${f.filename}`)
+              .join('\n');
+
+            const labels = (context.payload.pull_request.labels || [])
+              .map(l => (l.name || '').toLowerCase());
+
+            if (labels.includes(label.toLowerCase())) {
+              core.warning(
+                `Protected review-config paths modified WITH the "${label}" label:\n${detail}\n` +
+                'The label add is in the PR timeline - auditable. Proceeding.'
+              );
+              return;
+            }
+
+            core.setFailed(
+              `This PR touches protected review-config paths without the "${label}" label:\n${detail}\n\n` +
+              'These files gate the fleet review chain. On 2026-08-01 a sweep deleted them ' +
+              'fleet-wide and nothing tripped; this check is what now trips. Changes require ' +
+              `Calum's word - the sanctioned path is him authorising the "${label}" label on this PR. ` +
+              'Do not treat this PR as mergeable until this check passes.'
+            );

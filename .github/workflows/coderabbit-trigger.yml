@@ -1,0 +1,205 @@
+# ==============================================================================
+# CANONICAL FLEET WORKFLOW - Request CodeRabbit review
+# Install at: .github/workflows/coderabbit-trigger.yml
+# ==============================================================================
+#
+# WHAT THIS FIXES (the 422-swallow bug, found in 21 of 21 workflow-carrying
+# repos in the fleet audit):
+#
+#   The old code was:
+#       catch (e) { if (status === 422) core.warning('...benign...'); }
+#
+#   422 from pulls.requestReviewers has two very different causes:
+#     (a) the reviewer is ALREADY requested on this PR  -> genuinely benign
+#     (b) the reviewer is NOT A VALID COLLABORATOR       -> total failure
+#         (bot removed, bot lost access, or the slug is simply wrong -
+#          the fleet currently disagrees on the Gemini and Copilot slugs)
+#
+#   The old code classified BOTH as benign and reported the job green. So a
+#   repo whose reviewer bot had been removed looked identical to a healthy
+#   one, forever, with no signal anywhere. Under the fleet merge policy that
+#   auto-merges on "bot-clear", that is a green light on an unreviewed diff.
+#
+#   THE FIX: on 422, call listRequestedReviewers (and listReviews, because a
+#   bot that has already SUBMITTED its review is no longer in the requested
+#   list). Suppress ONLY if the specific bot is confirmed present. Otherwise
+#   re-throw and fail the job loudly.
+#
+# SECONDARY FIXES over the old fleet copies:
+#   * Reviewers are requested ONE AT A TIME. The old batched call meant a
+#     single bad slug 422'd the whole array, so NO reviewer was attached and
+#     the job still reported green (observed in subtracker).
+#   * Final verification step: the job only succeeds if every target reviewer
+#     is verifiably attached to or has reviewed this PR. Green now means the
+#     bot is really there, which is what the merge policy assumes.
+#   * `permissions: {}` top-level deny-all, scope granted at job level only.
+#   * Action SHA-pinned (several fleet copies used a mutable @v7 tag).
+#   * Draft guard + fork guard (missing in several fleet copies; on a fork PR
+#     the token is read-only and requestReviewers CANNOT succeed).
+#   * Fires on ready_for_review, NOT on synchronize - one pass on the finished
+#     diff, per Gospel Rule 3.
+#   * The `ai-review` label is an OPTIONAL manual re-trigger, no longer a
+#     REQUIRED gate. Requiring it was why CodeRabbit reviewed nearly nothing.
+# ==============================================================================
+
+name: Request CodeRabbit Review
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, labeled]
+
+concurrency:
+  group: request-coderabbit-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# Deny-all default. Every job must opt in to the scopes it needs.
+permissions: {}
+
+jobs:
+  request-review:
+    name: Request and verify CodeRabbit reviewer
+    runs-on: ubuntu-latest
+
+    permissions:
+      pull-requests: write # pulls.requestReviewers
+
+    # Skip drafts (nothing final to review yet) and forks (read-only token,
+    # the API call cannot succeed and failing loudly there is just noise).
+    # On a `labeled` event, only act for the `ai-review` label - otherwise
+    # every label change would re-trigger.
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.event.action != 'labeled' || github.event.label.name == 'ai-review')
+
+    steps:
+      - name: Request CodeRabbit and verify it is attached
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          # Slug used in the reviewers array of pulls.requestReviewers.
+          TARGET_REVIEWER: coderabbitai
+          # Logins that count as "this reviewer is present" when reading back
+          # requested reviewers or submitted reviews. GitHub is inconsistent
+          # about the [bot] suffix depending on the endpoint, so both forms
+          # are accepted. Comma-separated.
+          TARGET_ALIASES: coderabbitai,coderabbitai[bot]
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const prNumber = context.payload.pull_request.number;
+
+            const target = process.env.TARGET_REVIEWER;
+            const aliases = new Set(
+              process.env.TARGET_ALIASES
+                .split(',')
+                .map(s => s.trim().toLowerCase())
+                .filter(Boolean)
+            );
+
+            const norm = (login) => (login || '').trim().toLowerCase();
+            const matches = (login) => {
+              const l = norm(login);
+              // Accept both `x` and `x[bot]` regardless of which form the
+              // endpoint returned or which form we configured.
+              return aliases.has(l) || aliases.has(l.replace(/\[bot\]$/, ''));
+            };
+
+            // --- Read back the PR's actual reviewer state -------------------
+            // Two sources, because a bot that has ALREADY SUBMITTED a review
+            // is removed from requested_reviewers. Checking only the first
+            // source would produce a false failure on a re-run.
+            async function reviewerIsAttached() {
+              const requested = await github.rest.pulls.listRequestedReviewers({
+                owner, repo, pull_number: prNumber,
+              });
+              const requestedUsers = requested.data.users || [];
+              if (requestedUsers.some(u => matches(u.login))) {
+                return { attached: true, how: 'listed as a requested reviewer' };
+              }
+
+              const reviews = await github.paginate(
+                github.rest.pulls.listReviews,
+                { owner, repo, pull_number: prNumber, per_page: 100 }
+              );
+              if (reviews.some(r => matches(r.user && r.user.login))) {
+                return { attached: true, how: 'has already submitted a review' };
+              }
+
+              return {
+                attached: false,
+                requested: requestedUsers.map(u => u.login),
+                reviewed: [...new Set(reviews.map(r => r.user && r.user.login))],
+              };
+            }
+
+            // --- Request ----------------------------------------------------
+            // One reviewer per call. Batching means a single invalid slug
+            // 422s the whole array and NOBODY gets requested.
+            let requestError = null;
+            try {
+              await github.rest.pulls.requestReviewers({
+                owner, repo, pull_number: prNumber, reviewers: [target],
+              });
+              core.info(`requestReviewers accepted for "${target}".`);
+            } catch (e) {
+              const status = e.status ?? e.response?.status;
+              const msg = e.response?.data?.message ?? e.message;
+              requestError = { status, msg };
+
+              if (status !== 422) {
+                // 401/403/404/5xx are never benign. Fail immediately.
+                core.setFailed(
+                  `requestReviewers failed for "${target}" with status ${status ?? 'unknown'}: ${msg}`
+                );
+                throw e;
+              }
+
+              // 422 only. Do NOT assume benign - verify below.
+              core.info(
+                `requestReviewers returned 422 for "${target}" (${msg}). ` +
+                `Verifying whether the reviewer is already attached...`
+              );
+            }
+
+            // --- Verify -----------------------------------------------------
+            // This runs on BOTH paths. Even a 200 is verified, because green
+            // must mean "the bot is really on this PR", not "an API call did
+            // not throw".
+            const state = await reviewerIsAttached();
+
+            if (state.attached) {
+              if (requestError) {
+                core.info(
+                  `422 confirmed benign: "${target}" ${state.how}. ` +
+                  `Original message: ${requestError.msg}`
+                );
+              } else {
+                core.info(`Verified: "${target}" ${state.how}.`);
+              }
+              core.summary
+                .addHeading('CodeRabbit reviewer verified', 3)
+                .addRaw(`\`${target}\` is attached to PR #${prNumber} (${state.how}).`)
+                .write();
+              return;
+            }
+
+            // Not attached. This is the case the old code silently swallowed.
+            const detail = [
+              `Requested reviewers on PR #${prNumber}: ${state.requested.length ? state.requested.join(', ') : '(none)'}`,
+              `Reviews submitted by: ${state.reviewed.length ? state.reviewed.join(', ') : '(none)'}`,
+              requestError
+                ? `requestReviewers returned ${requestError.status}: ${requestError.msg}`
+                : `requestReviewers returned success but the reviewer is not present.`,
+              '',
+              'Likely causes, in order of probability:',
+              `  1. "${target}" is not installed on / does not have access to ${owner}/${repo}.`,
+              `  2. The reviewer slug "${target}" is wrong for this app.`,
+              '  3. The bot was removed as a collaborator.',
+              '',
+              'This job now FAILS instead of reporting a false green. Do not',
+              'treat this PR as bot-clear for merge purposes until it passes.',
+            ].join('\n');
+
+            core.setFailed(
+              `Could not verify that "${target}" is a reviewer on PR #${prNumber}.\n${detail}`
+            );
