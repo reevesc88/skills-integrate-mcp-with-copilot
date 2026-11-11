@@ -52,7 +52,15 @@ document.addEventListener("DOMContentLoaded", () => {
   const sortBy = document.getElementById("sort-by");
 
   let activities = {};
+  // loading: no successful fetch yet; error: latest fetch failed; ready: latest fetch succeeded.
+  let loadState = "loading";
   let messageTimer;
+  // Only the most recently started fetch may commit activities or loadState.
+  let fetchSeq = 0;
+
+  const loadingActivitiesHtml = "<p>Loading activities...</p>";
+  const loadErrorText = "Failed to load activities. Please try again later.";
+  const loadErrorHtml = `<p>${loadErrorText}</p>`;
 
   function showMessage(text, type) {
     messageDiv.textContent = text;
@@ -103,7 +111,45 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function cloneActivities(data) {
+    const cloned = {};
+    Object.entries(data).forEach(([name, details]) => {
+      cloned[name] = {
+        ...details,
+        participants: Array.isArray(details.participants)
+          ? details.participants.slice()
+          : [],
+      };
+    });
+    return cloned;
+  }
+
+  // Signup and unregister update the cached roster before refetching so a
+  // failed refetch does not paint the pre-mutation list.
+  function updateLocalParticipants(activityName, email, signedUp) {
+    const details = activities[activityName];
+    if (!details || !email) {
+      return;
+    }
+    const participants = Array.isArray(details.participants)
+      ? details.participants
+      : [];
+    const alreadyListed = participants.includes(email);
+    if (signedUp && !alreadyListed) {
+      details.participants = participants.concat(email);
+    } else if (!signedUp && alreadyListed) {
+      details.participants = participants.filter((item) => item !== email);
+    }
+  }
+
   function renderActivities() {
+    if (Object.keys(activities).length === 0 && loadState !== "ready") {
+      activitiesCount.textContent = "";
+      activitiesList.innerHTML =
+        loadState === "error" ? loadErrorHtml : loadingActivitiesHtml;
+      return;
+    }
+
     const entries = filterAndSortActivities(Object.entries(activities), {
       query: searchInput.value,
       category: categoryFilter.value,
@@ -118,8 +164,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
     activitiesList.innerHTML = "";
 
+    if (loadState === "error") {
+      const notice = document.createElement("p");
+      notice.className = "error activities-load-error";
+      notice.textContent = loadErrorText;
+      activitiesList.appendChild(notice);
+    }
+
     if (entries.length === 0) {
-      activitiesList.innerHTML = "<p>No activities match your search.</p>";
+      if (loadState === "error") {
+        const empty = document.createElement("p");
+        empty.textContent = "No activities match your search.";
+        activitiesList.appendChild(empty);
+      } else {
+        activitiesList.innerHTML = "<p>No activities match your search.</p>";
+      }
       return;
     }
 
@@ -170,20 +229,33 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Function to fetch activities from API
   async function fetchActivities() {
+    const seq = ++fetchSeq;
+    if (Object.keys(activities).length === 0) {
+      loadState = "loading";
+      renderActivities();
+    }
+
     try {
       const response = await fetch("/activities");
       if (!response.ok) {
         throw new Error(`Request failed: ${response.status}`);
       }
-      activities = await response.json();
+      const data = cloneActivities(await response.json());
+      if (seq !== fetchSeq) {
+        return;
+      }
+      activities = data;
+      loadState = "ready";
       populateCategoryFilter();
       populateActivitySelect();
       renderActivities();
     } catch (error) {
-      activitiesList.innerHTML =
-        "<p>Failed to load activities. Please try again later.</p>";
-      activitiesCount.textContent = "";
+      if (seq !== fetchSeq) {
+        return;
+      }
+      loadState = "error";
       console.error("Error fetching activities:", error);
+      renderActivities();
     }
   }
 
@@ -207,6 +279,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (response.ok) {
         showMessage(result.message, "success");
+        updateLocalParticipants(activity, email, false);
         fetchActivities();
       } else {
         showMessage(result.detail || "An error occurred", "error");
@@ -238,6 +311,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (response.ok) {
         showMessage(result.message, "success");
+        updateLocalParticipants(activity, email, true);
         signupForm.reset();
         fetchActivities();
       } else {
