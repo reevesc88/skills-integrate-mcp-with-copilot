@@ -105,6 +105,10 @@ section h3 {
   font-size: 14px;
 }
 
+.activities-load-error {
+  margin-bottom: 12px;
+}
+
 .activity-category {
   display: inline-block;
   margin-bottom: 8px;

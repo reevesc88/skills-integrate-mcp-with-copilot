@@ -311,23 +311,119 @@ async function testActivityMarkupIsEscaped() {
   assert.equal(html.includes('onmouseover="alert(1)"'), false);
 }
 
-async function testFailedActivitiesResponseKeepsPreviousState() {
+function fireToolbar(harness) {
+  harness.elements["activity-search"].listeners.input.forEach((fn) => fn());
+  harness.elements["category-filter"].listeners.change.forEach((fn) => fn());
+  harness.elements["sort-by"].listeners.change.forEach((fn) => fn());
+}
+
+function failureNotice(list) {
+  return list.children.find(
+    (child) =>
+      (child.textContent || "").includes(
+        "Failed to load activities. Please try again later."
+      ) ||
+      (child.innerHTML || "").includes(
+        "Failed to load activities. Please try again later."
+      )
+  );
+}
+
+function activityCard(list) {
+  return list.children.find((child) => child.className === "activity-card");
+}
+
+async function testInitialLoadFailureSurvivesToolbar() {
+  const harness = createHarness(async () => jsonResponse({ detail: "nope" }, 500));
+  await settle();
+
+  assert.strictEqual(
+    harness.elements["activities-list"].innerHTML,
+    "<p>Failed to load activities. Please try again later.</p>"
+  );
+  assert.strictEqual(harness.elements["activities-count"].textContent, "");
+
+  harness.elements["activity-search"].value = "chess";
+  harness.elements["category-filter"].value = "Sports";
+  harness.elements["sort-by"].value = "time";
+  fireToolbar(harness);
+
+  assert.strictEqual(
+    harness.elements["activities-list"].innerHTML,
+    "<p>Failed to load activities. Please try again later.</p>"
+  );
+  assert.ok(
+    !harness.elements["activities-list"].innerHTML.includes(
+      "No activities match your search."
+    )
+  );
+}
+
+async function testLoadingCopySurvivesToolbarUntilFetchSucceeds() {
+  let resolveFetch;
+  const pending = new Promise((resolve) => {
+    resolveFetch = resolve;
+  });
+  const harness = createHarness(() => pending);
+
+  assert.strictEqual(
+    harness.elements["activities-list"].innerHTML,
+    "<p>Loading activities...</p>"
+  );
+
+  harness.elements["activity-search"].value = "chess";
+  fireToolbar(harness);
+  assert.strictEqual(
+    harness.elements["activities-list"].innerHTML,
+    "<p>Loading activities...</p>"
+  );
+  assert.ok(
+    !harness.elements["activities-list"].innerHTML.includes(
+      "No activities match your search."
+    )
+  );
+
+  resolveFetch(
+    jsonResponse({
+      "Chess Club": {
+        ...chessClub,
+        participants: chessClub.participants.slice(),
+      },
+    })
+  );
+  await settle();
+
+  const card = activityCard(harness.elements["activities-list"]);
+  assert.ok(card, "cards render after the fetch succeeds");
+  assert.ok(card.innerHTML.includes("Chess Club"));
+  assert.strictEqual(failureNotice(harness.elements["activities-list"]), undefined);
+}
+
+async function testFailedRefetchAfterSignupKeepsRosterAndError() {
   let activityCalls = 0;
   const harness = createHarness(async (url) => {
     if (String(url).includes("/signup")) {
       return jsonResponse({ message: "signed up" });
     }
+    if (String(url).includes("/unregister")) {
+      return jsonResponse({ message: "unregistered" });
+    }
     activityCalls += 1;
     if (activityCalls === 1) {
-      return jsonResponse({ "Chess Club": chessClub });
+      return jsonResponse({
+        "Chess Club": {
+          ...chessClub,
+          participants: ["michael@mergington.edu"],
+        },
+      });
     }
     return jsonResponse({ detail: "nope" }, 500);
   });
 
   await settle();
-  assert.ok(
-    harness.elements["activities-list"].children[0].innerHTML.includes("Chess Club")
-  );
+  const initialCard = activityCard(harness.elements["activities-list"]);
+  assert.ok(initialCard.innerHTML.includes("Chess Club"));
+  assert.ok(!initialCard.innerHTML.includes("student@mergington.edu"));
 
   harness.elements.email.value = "student@mergington.edu";
   harness.elements.activity.value = "Chess Club";
@@ -336,21 +432,51 @@ async function testFailedActivitiesResponseKeepsPreviousState() {
   });
   await settle();
 
-  assert.strictEqual(
-    harness.elements["activities-list"].innerHTML,
-    "<p>Failed to load activities. Please try again later.</p>"
-  );
-
-  harness.elements["activity-search"].listeners.input.forEach((fn) => fn());
-  const card = harness.elements["activities-list"].children[0];
+  const list = harness.elements["activities-list"];
+  const card = activityCard(list);
+  assert.ok(card, "cached activity card should stay visible");
   assert.ok(card.innerHTML.includes("Chess Club"));
   assert.ok(card.innerHTML.includes("michael@mergington.edu"));
+  assert.ok(card.innerHTML.includes("student@mergington.edu"));
+  assert.ok(card.innerHTML.includes("10 spots left"));
+  assert.ok(failureNotice(list), "failure indicator should stay visible with cached cards");
+  assert.strictEqual(
+    harness.elements["activities-count"].textContent,
+    "Showing 1 of 1 activities"
+  );
+
+  harness.elements["activity-search"].value = "chess";
+  fireToolbar(harness);
+
+  const cardAfter = activityCard(list);
+  assert.ok(cardAfter.innerHTML.includes("student@mergington.edu"));
+  assert.ok(cardAfter.innerHTML.includes("michael@mergington.edu"));
+  assert.ok(failureNotice(list), "toolbar should keep the failure indicator");
+  assert.ok(
+    !list.children.some((child) =>
+      `${child.textContent || ""} ${child.innerHTML || ""}`.includes(
+        "No activities match your search."
+      )
+    )
+  );
+
+  harness.elements["activity-search"].value = "not-a-real-activity";
+  fireToolbar(harness);
+  assert.ok(failureNotice(list), "filtered empty roster should keep the failure indicator");
+  assert.strictEqual(activityCard(list), undefined);
+  assert.ok(
+    list.children.some((child) =>
+      (child.textContent || "").includes("No activities match your search.")
+    )
+  );
 }
 
 Promise.all([
   testMessageTimer(),
   testActivityMarkupIsEscaped(),
-  testFailedActivitiesResponseKeepsPreviousState(),
+  testInitialLoadFailureSurvivesToolbar(),
+  testLoadingCopySurvivesToolbarUntilFetchSucceeds(),
+  testFailedRefetchAfterSignupKeepsRosterAndError(),
 ])
   .then(() => {
     console.log("activity filter tests passed");
