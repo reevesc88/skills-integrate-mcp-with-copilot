@@ -8,6 +8,7 @@ for extracurricular activities at Mergington High School.
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
+import json
 import os
 from pathlib import Path
 
@@ -19,92 +20,13 @@ current_dir = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=os.path.join(Path(__file__).parent,
           "static")), name="static")
 
-# In-memory activity database.
+# In-memory activity database, loaded from activities.json so the list can be
+# edited without changing this program. Signups stay in memory until restart.
 # `schedule` stays the human-readable time shown on each card.
 # `date` is the earliest meeting in the week of Monday 2025-01-06,
 # as a local ISO datetime, and is used only to sort by time.
-activities = {
-    "Chess Club": {
-        "description": "Learn strategies and compete in chess tournaments",
-        "schedule": "Fridays, 3:30 PM - 5:00 PM",
-        "date": "2025-01-10T15:30:00",
-        "category": "Academic",
-        "max_participants": 12,
-        "participants": ["michael@mergington.edu", "daniel@mergington.edu"]
-    },
-    "Programming Class": {
-        "description": "Learn programming fundamentals and build software projects",
-        "schedule": "Tuesdays and Thursdays, 3:30 PM - 4:30 PM",
-        "date": "2025-01-07T15:30:00",
-        "category": "Academic",
-        "max_participants": 20,
-        "participants": ["emma@mergington.edu", "sophia@mergington.edu"]
-    },
-    "Gym Class": {
-        "description": "Physical education and sports activities",
-        "schedule": "Mondays, Wednesdays, Fridays, 2:00 PM - 3:00 PM",
-        "date": "2025-01-06T14:00:00",
-        "category": "Sports",
-        "max_participants": 30,
-        "participants": ["john@mergington.edu", "olivia@mergington.edu"]
-    },
-    "Soccer Team": {
-        "description": "Join the school soccer team and compete in matches",
-        "schedule": "Tuesdays and Thursdays, 4:00 PM - 5:30 PM",
-        "date": "2025-01-07T16:00:00",
-        "category": "Sports",
-        "max_participants": 22,
-        "participants": ["liam@mergington.edu", "noah@mergington.edu"]
-    },
-    "Basketball Team": {
-        "description": "Practice and play basketball with the school team",
-        "schedule": "Wednesdays and Fridays, 3:30 PM - 5:00 PM",
-        "date": "2025-01-08T15:30:00",
-        "category": "Sports",
-        "max_participants": 15,
-        "participants": ["ava@mergington.edu", "mia@mergington.edu"]
-    },
-    "Art Club": {
-        "description": "Explore your creativity through painting and drawing",
-        "schedule": "Thursdays, 3:30 PM - 5:00 PM",
-        "date": "2025-01-09T15:30:00",
-        "category": "Arts",
-        "max_participants": 15,
-        "participants": ["amelia@mergington.edu", "harper@mergington.edu"]
-    },
-    "Drama Club": {
-        "description": "Act, direct, and produce plays and performances",
-        "schedule": "Mondays and Wednesdays, 4:00 PM - 5:30 PM",
-        "date": "2025-01-06T16:00:00",
-        "category": "Arts",
-        "max_participants": 20,
-        "participants": ["ella@mergington.edu", "scarlett@mergington.edu"]
-    },
-    "Math Club": {
-        "description": "Solve challenging problems and participate in math competitions",
-        "schedule": "Tuesdays, 3:30 PM - 4:30 PM",
-        "date": "2025-01-07T15:30:00",
-        "category": "Academic",
-        "max_participants": 10,
-        "participants": ["james@mergington.edu", "benjamin@mergington.edu"]
-    },
-    "Debate Team": {
-        "description": "Develop public speaking and argumentation skills",
-        "schedule": "Fridays, 4:00 PM - 5:30 PM",
-        "date": "2025-01-10T16:00:00",
-        "category": "Academic",
-        "max_participants": 12,
-        "participants": ["charlotte@mergington.edu", "henry@mergington.edu"]
-    },
-    "GitHub Skills": {
-        "description": "Learn practical coding and collaboration skills on GitHub",
-        "schedule": "Mondays, 3:30 PM - 5:00 PM",
-        "date": "2025-01-06T15:30:00",
-        "category": "Technology",
-        "max_participants": 25,
-        "participants": []
-    }
-}
+with open(current_dir / "activities.json", encoding="utf-8") as activities_file:
+    activities = json.load(activities_file)
 
 
 @app.get("/")
