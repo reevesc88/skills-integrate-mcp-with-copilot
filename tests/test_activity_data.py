@@ -92,9 +92,9 @@ class ActivityDataTests(unittest.TestCase):
         self.assertIn('id="sort-by"', html)
         self.assertLess(html.index("activity-toolbar"), html.index("activities-list"))
         for element_id in ("activity-search", "category-filter", "sort-by"):
-            self.assertIn(element_id, js)
-        self.assertIn("filterAndSortActivities", js)
-        self.assertIn(".toolbar", css)
+            self.assertIn(f'getElementById("{element_id}")', js)
+        self.assertIn("function filterAndSortActivities(", js)
+        self.assertIn(".toolbar {", css)
         self.assertIn("@media (max-width: 600px)", css)
 
 

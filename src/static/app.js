@@ -32,6 +32,15 @@ function filterAndSortActivities(entries, options) {
   return filtered;
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const activitiesList = document.getElementById("activities-list");
   const activitiesCount = document.getElementById("activities-count");
@@ -43,12 +52,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const sortBy = document.getElementById("sort-by");
 
   let activities = {};
+  let messageTimer;
 
   function showMessage(text, type) {
     messageDiv.textContent = text;
     messageDiv.className = type;
     messageDiv.classList.remove("hidden");
-    setTimeout(() => {
+    clearTimeout(messageTimer);
+    messageTimer = setTimeout(() => {
       messageDiv.classList.add("hidden");
     }, 5000);
   }
@@ -119,28 +130,30 @@ document.addEventListener("DOMContentLoaded", () => {
       activityCard.dataset.name = name;
 
       const spotsLeft = details.max_participants - details.participants.length;
+      const safeName = escapeHtml(name);
 
-      // Create participants HTML with delete icons instead of bullet points
+      // Create participants HTML with delete icons instead of bullet points.
+      // Escape field values only; this string is inserted as markup.
       const participantsHTML =
         details.participants.length > 0
           ? `<div class="participants-section">
             <h5>Participants:</h5>
             <ul class="participants-list">
               ${details.participants
-                .map(
-                  (email) =>
-                    `<li><span class="participant-email">${email}</span><button class="delete-btn" data-activity="${name}" data-email="${email}">❌</button></li>`
-                )
+                .map((email) => {
+                  const safeEmail = escapeHtml(email);
+                  return `<li><span class="participant-email">${safeEmail}</span><button class="delete-btn" data-activity="${safeName}" data-email="${safeEmail}">❌</button></li>`;
+                })
                 .join("")}
             </ul>
           </div>`
           : `<p><em>No participants yet</em></p>`;
 
       activityCard.innerHTML = `
-        <h4>${name}</h4>
-        <p class="activity-category">${details.category || ""}</p>
-        <p>${details.description}</p>
-        <p><strong>Schedule:</strong> ${details.schedule}</p>
+        <h4>${safeName}</h4>
+        <p class="activity-category">${escapeHtml(details.category || "")}</p>
+        <p>${escapeHtml(details.description)}</p>
+        <p><strong>Schedule:</strong> ${escapeHtml(details.schedule)}</p>
         <p><strong>Availability:</strong> ${spotsLeft} spots left</p>
         <div class="participants-container">
           ${participantsHTML}
@@ -159,6 +172,9 @@ document.addEventListener("DOMContentLoaded", () => {
   async function fetchActivities() {
     try {
       const response = await fetch("/activities");
+      if (!response.ok) {
+        throw new Error(`Request failed: ${response.status}`);
+      }
       activities = await response.json();
       populateCategoryFilter();
       populateActivitySelect();
