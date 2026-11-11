@@ -1,12 +1,13 @@
 """Activity records keep a display schedule plus fields used for filtering."""
 
-import ast
 import datetime
+import json
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_PATH = ROOT / "src" / "app.py"
+ACTIVITIES_PATH = ROOT / "src" / "activities.json"
 HTML_PATH = ROOT / "src" / "static" / "index.html"
 JS_PATH = ROOT / "src" / "static" / "app.js"
 CSS_PATH = ROOT / "src" / "static" / "styles.css"
@@ -37,14 +38,7 @@ EXPECTED_SCHEDULES = {
 
 
 def load_activities():
-    module = ast.parse(APP_PATH.read_text())
-    for node in module.body:
-        if not isinstance(node, ast.Assign):
-            continue
-        for target in node.targets:
-            if isinstance(target, ast.Name) and target.id == "activities":
-                return ast.literal_eval(node.value)
-    raise AssertionError("activities dict not found")
+    return json.loads(ACTIVITIES_PATH.read_text(encoding="utf-8"))
 
 
 def to_12h(hour, minute):
@@ -56,6 +50,14 @@ def to_12h(hour, minute):
 class ActivityDataTests(unittest.TestCase):
     def setUp(self):
         self.activities = load_activities()
+
+    def test_activities_are_loaded_from_json_not_python(self):
+        source = APP_PATH.read_text(encoding="utf-8")
+        self.assertTrue(ACTIVITIES_PATH.is_file())
+        self.assertIn("activities.json", source)
+        self.assertIn("json.load", source)
+        for name in EXPECTED_SCHEDULES:
+            self.assertNotIn(name, source)
 
     def test_every_activity_has_category_date_and_schedule(self):
         self.assertEqual(set(self.activities), set(EXPECTED_SCHEDULES))
