@@ -471,12 +471,112 @@ async function testFailedRefetchAfterSignupKeepsRosterAndError() {
   );
 }
 
+function activityPayload(name, participants) {
+  return jsonResponse({
+    [name]: {
+      ...chessClub,
+      participants: participants.slice(),
+    },
+  });
+}
+
+function selectValues(select) {
+  return select.children.map((child) => child.value);
+}
+
+async function signUp(harness, email) {
+  harness.elements.email.value = email;
+  harness.elements.activity.value = "Chess Club";
+  await harness.elements["signup-form"].listeners.submit[0]({
+    preventDefault() {},
+  });
+}
+
+async function testEarlierFetchSettlingLastIsIgnored() {
+  const pendingGets = [];
+  const harness = createHarness(async (url) => {
+    if (String(url).includes("/signup")) {
+      return jsonResponse({ message: "signed up" });
+    }
+    let resolveGet;
+    const promise = new Promise((resolve) => {
+      resolveGet = resolve;
+    });
+    pendingGets.push(resolveGet);
+    return promise;
+  });
+
+  pendingGets[0](activityPayload("Chess Club", ["michael@mergington.edu"]));
+  await settle();
+
+  await signUp(harness, "first@mergington.edu");
+  await signUp(harness, "second@mergington.edu");
+  assert.strictEqual(pendingGets.length, 3);
+
+  pendingGets[2](
+    activityPayload("Chess Club", [
+      "michael@mergington.edu",
+      "first@mergington.edu",
+      "second@mergington.edu",
+    ])
+  );
+  await settle();
+
+  let list = harness.elements["activities-list"];
+  let card = activityCard(list);
+  assert.ok(card.innerHTML.includes("second@mergington.edu"));
+  assert.strictEqual(failureNotice(list), undefined);
+  assert.deepStrictEqual(selectValues(harness.elements.activity), ["Chess Club"]);
+
+  // Earlier 200 settles last and must not replace the newer roster.
+  pendingGets[1](activityPayload("Stale Club", ["stale-only@mergington.edu"]));
+  await settle();
+
+  list = harness.elements["activities-list"];
+  card = activityCard(list);
+  assert.ok(card.innerHTML.includes("Chess Club"));
+  assert.ok(card.innerHTML.includes("second@mergington.edu"));
+  assert.ok(!card.innerHTML.includes("Stale Club"));
+  assert.ok(!card.innerHTML.includes("stale-only@mergington.edu"));
+  assert.strictEqual(failureNotice(list), undefined);
+  assert.deepStrictEqual(selectValues(harness.elements.activity), ["Chess Club"]);
+
+  // Earlier failure settles last and must not restore the error after a newer 200.
+  await signUp(harness, "third@mergington.edu");
+  await signUp(harness, "fourth@mergington.edu");
+  const newer = pendingGets.length - 1;
+  const older = newer - 1;
+  pendingGets[newer](
+    activityPayload("Chess Club", [
+      "michael@mergington.edu",
+      "first@mergington.edu",
+      "second@mergington.edu",
+      "third@mergington.edu",
+      "fourth@mergington.edu",
+    ])
+  );
+  await settle();
+
+  pendingGets[older](jsonResponse({ detail: "nope" }, 500));
+  await settle();
+
+  list = harness.elements["activities-list"];
+  card = activityCard(list);
+  assert.ok(card.innerHTML.includes("fourth@mergington.edu"));
+  assert.strictEqual(failureNotice(list), undefined);
+  assert.strictEqual(
+    harness.elements["activities-count"].textContent,
+    "Showing 1 of 1 activities"
+  );
+}
+
 Promise.all([
   testMessageTimer(),
   testActivityMarkupIsEscaped(),
   testInitialLoadFailureSurvivesToolbar(),
   testLoadingCopySurvivesToolbarUntilFetchSucceeds(),
   testFailedRefetchAfterSignupKeepsRosterAndError(),
+  testEarlierFetchSettlingLastIsIgnored(),
 ])
   .then(() => {
     console.log("activity filter tests passed");

@@ -55,6 +55,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // loading: no successful fetch yet; error: latest fetch failed; ready: latest fetch succeeded.
   let loadState = "loading";
   let messageTimer;
+  // Only the most recently started fetch may commit activities or loadState.
+  let fetchSeq = 0;
 
   const loadingActivitiesHtml = "<p>Loading activities...</p>";
   const loadErrorText = "Failed to load activities. Please try again later.";
@@ -227,6 +229,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Function to fetch activities from API
   async function fetchActivities() {
+    const seq = ++fetchSeq;
     if (Object.keys(activities).length === 0) {
       loadState = "loading";
       renderActivities();
@@ -237,12 +240,19 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!response.ok) {
         throw new Error(`Request failed: ${response.status}`);
       }
-      activities = cloneActivities(await response.json());
+      const data = cloneActivities(await response.json());
+      if (seq !== fetchSeq) {
+        return;
+      }
+      activities = data;
       loadState = "ready";
       populateCategoryFilter();
       populateActivitySelect();
       renderActivities();
     } catch (error) {
+      if (seq !== fetchSeq) {
+        return;
+      }
       loadState = "error";
       console.error("Error fetching activities:", error);
       renderActivities();
